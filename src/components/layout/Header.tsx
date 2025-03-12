@@ -1,4 +1,5 @@
 import React from "react";
+import { useAuth } from "@/lib/auth";
 import { Link } from "react-router-dom";
 import { Button } from "../ui/button";
 import {
@@ -18,11 +19,20 @@ interface HeaderProps {
 }
 
 const Header = ({
-  isLoggedIn = false,
+  isLoggedIn: propIsLoggedIn,
   userType = "subscriber",
-  userName = "Guest User",
-  userAvatar = "",
+  userName: propUserName = "Guest User",
+  userAvatar: propUserAvatar = "",
 }: HeaderProps) => {
+  const { user, profile, signOut } = useAuth();
+
+  // Use props if provided, otherwise use auth context
+  const isLoggedIn = propIsLoggedIn !== undefined ? propIsLoggedIn : !!user;
+  const userName =
+    propUserName !== "Guest User"
+      ? propUserName
+      : profile?.name || user?.email || "Guest User";
+  const userAvatar = propUserAvatar || profile?.avatar_url || "";
   return (
     <header className="w-full h-20 bg-background border-b border-border flex items-center justify-between px-6 md:px-10 lg:px-16 fixed top-0 z-50">
       <div className="flex items-center gap-2">
@@ -91,9 +101,12 @@ const Header = ({
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link to="/logout" className="cursor-pointer w-full">
+                  <button
+                    onClick={() => signOut()}
+                    className="cursor-pointer w-full text-left px-2 py-1.5 text-sm"
+                  >
                     Logout
-                  </Link>
+                  </button>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

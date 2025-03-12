@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/components/ui/use-toast";
 import {
@@ -13,20 +12,28 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2 } from "lucide-react";
 
-interface AuthModalProps {
+interface MemberAuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   defaultTab?: "login" | "signup";
+  platformName: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  redirectAfterAuth?: string;
 }
 
-const AuthModal: React.FC<AuthModalProps> = ({
+const MemberAuthModal: React.FC<MemberAuthModalProps> = ({
   isOpen,
   onClose,
   defaultTab = "login",
+  platformName,
+  primaryColor,
+  secondaryColor,
+  redirectAfterAuth = "/",
 }) => {
-  const navigate = useNavigate();
   const { signIn, signUp } = useAuth();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<"login" | "signup">(defaultTab);
@@ -42,7 +49,14 @@ const AuthModal: React.FC<AuthModalProps> = ({
     email: "",
     password: "",
     confirmPassword: "",
+    acceptTerms: false,
   });
+
+  // Custom styles based on platform branding
+  const buttonStyle = {
+    backgroundColor: secondaryColor || "var(--primary)",
+    color: secondaryColor ? "white" : "var(--primary-foreground)",
+  };
 
   const handleLoginChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -52,6 +66,10 @@ const AuthModal: React.FC<AuthModalProps> = ({
   const handleSignupChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setSignupData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleCheckboxChange = (checked: boolean) => {
+    setSignupData((prev) => ({ ...prev, acceptTerms: checked }));
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -65,11 +83,11 @@ const AuthModal: React.FC<AuthModalProps> = ({
 
       toast({
         title: "Login successful",
-        description: "You have been logged in successfully.",
+        description: `Welcome back to ${platformName}!`,
       });
 
       onClose();
-      navigate("/dashboard");
+      window.location.href = redirectAfterAuth;
     } catch (error: any) {
       console.error("Login error:", error);
       toast({
@@ -106,6 +124,16 @@ const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
+    // Validate terms acceptance
+    if (!signupData.acceptTerms) {
+      toast({
+        title: "Terms not accepted",
+        description: "Please accept the terms and conditions to continue.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -119,11 +147,11 @@ const AuthModal: React.FC<AuthModalProps> = ({
 
       toast({
         title: "Account created",
-        description: "Your account has been created successfully.",
+        description: `Welcome to ${platformName}! Your account has been created successfully.`,
       });
 
       onClose();
-      navigate("/dashboard");
+      window.location.href = redirectAfterAuth;
     } catch (error: any) {
       console.error("Signup error:", error);
       toast({
@@ -142,12 +170,12 @@ const AuthModal: React.FC<AuthModalProps> = ({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-center text-2xl font-bold">
-            {activeTab === "login" ? "Welcome Back" : "Create an Account"}
+            {activeTab === "login" ? "Welcome Back" : "Join "} {platformName}
           </DialogTitle>
           <DialogDescription className="text-center">
             {activeTab === "login"
-              ? "Sign in to access your account"
-              : "Sign up to get started with CreatorPlatform"}
+              ? "Sign in to access your membership"
+              : "Create an account to join our community"}
           </DialogDescription>
         </DialogHeader>
 
@@ -158,7 +186,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
           className="w-full"
         >
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="login">Login</TabsTrigger>
+            <TabsTrigger value="login">Sign In</TabsTrigger>
             <TabsTrigger value="signup">Sign Up</TabsTrigger>
           </TabsList>
 
@@ -193,7 +221,12 @@ const AuthModal: React.FC<AuthModalProps> = ({
                   required
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={isLoading}>
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={isLoading}
+                style={buttonStyle}
+              >
                 {isLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Signing
@@ -257,7 +290,29 @@ const AuthModal: React.FC<AuthModalProps> = ({
                   required
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={isLoading}>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="acceptTerms"
+                  checked={signupData.acceptTerms}
+                  onCheckedChange={handleCheckboxChange}
+                />
+                <Label htmlFor="acceptTerms" className="text-sm">
+                  I agree to the{" "}
+                  <a href="/terms" className="text-primary hover:underline">
+                    Terms of Service
+                  </a>{" "}
+                  and{" "}
+                  <a href="/privacy" className="text-primary hover:underline">
+                    Privacy Policy
+                  </a>
+                </Label>
+              </div>
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={isLoading}
+                style={buttonStyle}
+              >
                 {isLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating
@@ -270,21 +325,9 @@ const AuthModal: React.FC<AuthModalProps> = ({
             </form>
           </TabsContent>
         </Tabs>
-
-        <div className="mt-4 text-center text-sm text-muted-foreground">
-          By continuing, you agree to our{" "}
-          <a href="#" className="text-primary hover:underline">
-            Terms of Service
-          </a>{" "}
-          and{" "}
-          <a href="#" className="text-primary hover:underline">
-            Privacy Policy
-          </a>
-          .
-        </div>
       </DialogContent>
     </Dialog>
   );
 };
 
-export default AuthModal;
+export default MemberAuthModal;

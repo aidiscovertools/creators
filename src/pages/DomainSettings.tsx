@@ -1,5 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useAuth } from "@/lib/auth";
+import { supabase } from "@/lib/supabase";
+import { useToast } from "@/components/ui/use-toast";
 import Header from "../components/layout/Header";
 import Footer from "../components/layout/Footer";
 import { Button } from "../components/ui/button";
@@ -28,29 +31,63 @@ import {
   Globe,
   Info,
   RefreshCw,
+  Loader2,
+  Save,
 } from "lucide-react";
 
 const DomainSettings: React.FC = () => {
   const navigate = useNavigate();
   const { platformId } = useParams<{ platformId: string }>();
   const [activeTab, setActiveTab] = useState("custom-domain");
-  const [customDomain, setCustomDomain] = useState("");
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [platformData, setPlatformData] = useState<any>(null);
+  const [formData, setFormData] = useState({
+    subdomain: "",
+    custom_domain: "",
+  });
   const [verificationStatus, setVerificationStatus] = useState<
-    "pending" | "verified" | "failed"
+    "pending" | "verifying" | "verified" | "failed"
   >("pending");
   const [isVerifying, setIsVerifying] = useState(false);
 
-  // Mock platform data
-  const platformData = {
-    id: platformId || "1",
-    name: "Fitness Revolution",
-    subdomain: "fitness-revolution",
-    customDomain: "fitness-revolution.com",
-    status: "active",
+  useEffect(() => {
+    if (platformId && user) {
+      fetchPlatformData();
+    }
+  }, [platformId, user]);
+
+  const fetchPlatformData = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("platforms")
+        .select("*")
+        .eq("id", platformId)
+        .single();
+
+      if (error) throw error;
+      setPlatformData(data);
+      setFormData({
+        subdomain: data.subdomain || "",
+        custom_domain: data.custom_domain || "",
+      });
+    } catch (error: any) {
+      console.error("Error fetching platform:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load platform data",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleDomainChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setCustomDomain(e.target.value);
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleVerifyDomain = () => {
@@ -62,20 +99,73 @@ const DomainSettings: React.FC = () => {
     }, 2000);
   };
 
+  const handleSave = async () => {
+    if (!user || !platformId) return;
+
+    setIsSaving(true);
+    try {
+      // Format subdomain - lowercase, no spaces, only alphanumeric and hyphens
+      const formattedSubdomain = formData.subdomain
+        .toLowerCase()
+        .replace(/\s+/g, "-")
+        .replace(/[^a-z0-9-]/g, "");
+
+      const updates = {
+        subdomain: formattedSubdomain,
+        custom_domain: formData.custom_domain,
+      };
+
+      const { data, error } = await supabase
+        .from("platforms")
+        .update(updates)
+        .eq("id", platformId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setPlatformData(data);
+      toast({
+        title: "Settings saved",
+        description: "Your domain settings have been updated successfully.",
+      });
+    } catch (error: any) {
+      console.error("Error updating domain settings:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update domain settings",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleSaveDomain = () => {
     // Here you would save the domain to your backend
-    console.log("Saving domain:", customDomain);
+    console.log("Saving domain:", formData.custom_domain);
     navigate(`/platform/${platformId}`);
   };
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    // You could add a toast notification here
+    toast({
+      title: "Copied to clipboard",
+      description: "The DNS record has been copied to your clipboard.",
+    });
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <Header isLoggedIn={true} userType="creator" userName="John Creator" />
+      <Header />
 
       <main className="flex-grow pt-24 pb-16 px-4 md:px-8 lg:px-12">
         <div className="max-w-3xl mx-auto">
@@ -121,18 +211,19 @@ const DomainSettings: React.FC = () => {
                 <CardContent className="space-y-6">
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="customDomain">Custom Domain</Label>
+                      <Label htmlFor="custom_domain">Custom Domain</Label>
                       <div className="flex">
                         <Input
-                          id="customDomain"
+                          id="custom_domain"
+                          name="custom_domain"
                           placeholder="www.yourdomain.com"
-                          value={customDomain}
-                          onChange={handleDomainChange}
+                          value={formData.custom_domain}
+                          onChange={handleInputChange}
                           className="rounded-r-none"
                         />
                         <Button
                           onClick={handleVerifyDomain}
-                          disabled={!customDomain || isVerifying}
+                          disabled={!formData.custom_domain || isVerifying}
                           className="rounded-l-none"
                         >
                           {isVerifying ? (
@@ -274,7 +365,7 @@ const DomainSettings: React.FC = () => {
                     Cancel
                   </Button>
                   <Button
-                    onClick={handleSaveDomain}
+                    onClick={handleSave}
                     disabled={verificationStatus !== "verified"}
                   >
                     Save Domain
@@ -291,7 +382,7 @@ const DomainSettings: React.FC = () => {
                   </CardTitle>
                   <CardDescription>
                     Your platform comes with a free subdomain on
-                    creatorplatform.com
+                    sharp-jennings4-ykw3j.dev-2.tempolabs.ai
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
@@ -301,12 +392,13 @@ const DomainSettings: React.FC = () => {
                       <div className="flex items-center">
                         <Input
                           id="subdomain"
-                          value={platformData.subdomain}
-                          readOnly
+                          name="subdomain"
+                          value={formData.subdomain}
+                          onChange={handleInputChange}
                           className="rounded-r-none"
                         />
                         <div className="bg-muted px-3 py-2 border border-l-0 border-input rounded-r-md text-muted-foreground">
-                          .creatorplatform.com
+                          .sharp-jennings4-ykw3j.dev-2.tempolabs.ai
                         </div>
                       </div>
                     </div>
@@ -323,7 +415,7 @@ const DomainSettings: React.FC = () => {
                     <div className="pt-4">
                       <Button variant="outline" className="w-full" asChild>
                         <a
-                          href={`https://${platformData.subdomain}.creatorplatform.com`}
+                          href={`https://${platformData.subdomain}.sharp-jennings4-ykw3j.dev-2.tempolabs.ai`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="flex items-center justify-center"
@@ -335,6 +427,20 @@ const DomainSettings: React.FC = () => {
                     </div>
                   </div>
                 </CardContent>
+                <CardFooter className="flex justify-end border-t pt-6">
+                  <Button onClick={handleSave} disabled={isSaving}>
+                    {isSaving ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />{" "}
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="mr-2 h-4 w-4" /> Save Changes
+                      </>
+                    )}
+                  </Button>
+                </CardFooter>
               </Card>
             </TabsContent>
           </Tabs>

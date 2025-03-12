@@ -1,5 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useAuth } from "@/lib/auth";
+import { supabase } from "@/lib/supabase";
+import { useToast } from "@/components/ui/use-toast";
 import Header from "../components/layout/Header";
 import Footer from "../components/layout/Footer";
 import { Button } from "../components/ui/button";
@@ -25,39 +28,128 @@ import {
   Globe,
   Settings,
   Users,
+  FileText,
+  Loader2,
+  Rocket,
 } from "lucide-react";
+import DeploymentModal from "../components/platform/DeploymentModal";
 
 const PlatformDetails: React.FC = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
+  const { user } = useAuth();
   const { platformId } = useParams<{ platformId: string }>();
   const [activeTab, setActiveTab] = useState("overview");
+  const [isLoading, setIsLoading] = useState(true);
+  const [platformData, setPlatformData] = useState<any>(null);
+  const [subscriptionTiers, setSubscriptionTiers] = useState<any[]>([]);
+  const [recentMembers, setRecentMembers] = useState<any[]>([]);
+  const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
 
-  // Mock platform data
-  const platformData = {
-    id: platformId || "1",
-    name: "Fitness Revolution",
-    description: "A fitness community for health enthusiasts",
-    domain: "fitness-revolution.com",
-    subdomain: "fitness-revolution",
-    status: "active",
-    members: 1245,
-    revenue: "$3,450",
-    lastDeployed: "2023-09-15",
-    subscriptionTiers: [
-      { name: "Basic", price: "9.99", members: 845 },
-      { name: "Premium", price: "19.99", members: 400 },
-    ],
-    recentMembers: [
-      { name: "Sarah Johnson", joined: "2023-10-15", tier: "Premium" },
-      { name: "Michael Chen", joined: "2023-10-14", tier: "Basic" },
-      { name: "Emma Williams", joined: "2023-10-12", tier: "Premium" },
-      { name: "David Brown", joined: "2023-10-10", tier: "Basic" },
-    ],
+  useEffect(() => {
+    if (platformId && user) {
+      fetchPlatformData();
+      fetchSubscriptionTiers();
+      fetchRecentMembers();
+    }
+  }, [platformId, user]);
+
+  const fetchPlatformData = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("platforms")
+        .select("*")
+        .eq("id", platformId)
+        .single();
+
+      if (error) throw error;
+      setPlatformData(data);
+    } catch (error: any) {
+      console.error("Error fetching platform:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load platform data",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
+
+  const fetchSubscriptionTiers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("subscription_tiers")
+        .select("*")
+        .eq("platform_id", platformId)
+        .order("price", { ascending: true });
+
+      if (error) throw error;
+      setSubscriptionTiers(data || []);
+    } catch (error: any) {
+      console.error("Error fetching subscription tiers:", error);
+    }
+  };
+
+  const fetchRecentMembers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("members")
+        .select(
+          `*, 
+          profiles:user_id(id, name, email, avatar_url), 
+          subscription_tiers:tier_id(id, name, price)`,
+        )
+        .eq("platform_id", platformId)
+        .order("joined_at", { ascending: false })
+        .limit(4);
+
+      if (error) throw error;
+      setRecentMembers(data || []);
+    } catch (error: any) {
+      console.error("Error fetching recent members:", error);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!platformData) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold mb-2">Platform Not Found</h2>
+          <p className="text-muted-foreground mb-4">
+            The platform you're looking for doesn't exist or you don't have
+            permission to view it.
+          </p>
+          <Button onClick={() => navigate("/dashboard")}>
+            Back to Dashboard
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const getDomain = () => {
+    if (platformData.custom_domain) return platformData.custom_domain;
+    if (platformData.subdomain)
+      return `${platformData.subdomain}.creatorplatform.com`;
+    return null;
+  };
+
+  const domain = getDomain();
+  const isActive = platformData.status === "active";
+  const totalMembers = recentMembers.length;
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <Header isLoggedIn={true} userType="creator" userName="John Creator" />
+      <Header />
 
       <main className="flex-grow pt-24 pb-16 px-4 md:px-8 lg:px-12">
         <div className="max-w-7xl mx-auto">
@@ -80,15 +172,32 @@ const PlatformDetails: React.FC = () => {
                 </p>
               </div>
               <div className="flex items-center mt-4 md:mt-0 space-x-2">
-                <Button variant="outline" size="sm" asChild>
-                  <a
-                    href={`https://${platformData.domain}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center"
+                {isActive ? (
+                  <Button variant="outline" size="sm" asChild>
+                    <a
+                      href={`https://${domain}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center"
+                    >
+                      <ExternalLink className="mr-2 h-4 w-4" /> Visit Platform
+                    </a>
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsDeployModalOpen(true)}
                   >
-                    <ExternalLink className="mr-2 h-4 w-4" /> Visit Platform
-                  </a>
+                    <Rocket className="mr-2 h-4 w-4" /> Deploy
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate(`/platform/${platformId}/analytics`)}
+                >
+                  <BarChart className="mr-2 h-4 w-4" /> Analytics
                 </Button>
                 <Button
                   variant="outline"
@@ -104,22 +213,28 @@ const PlatformDetails: React.FC = () => {
               <div className="flex items-center text-sm">
                 <Globe className="mr-1 h-4 w-4 text-muted-foreground" />
                 <a
-                  href={`https://${platformData.domain}`}
+                  href={`https://${domain}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-primary hover:underline"
                 >
-                  {platformData.domain}
+                  {domain}
                 </a>
               </div>
               <div className="flex items-center text-sm">
                 <Users className="mr-1 h-4 w-4 text-muted-foreground" />
-                <span>{platformData.members} members</span>
+                <span>{totalMembers} members</span>
               </div>
               <div className="flex items-center text-sm">
-                <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-green-100 text-green-800">
-                  Active
-                </span>
+                {isActive ? (
+                  <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-green-100 text-green-800">
+                    Active
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800">
+                    Draft
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -147,11 +262,11 @@ const PlatformDetails: React.FC = () => {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-3xl font-bold">
-                      {platformData.members}
-                    </div>
+                    <div className="text-3xl font-bold">{totalMembers}</div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      +24 this week
+                      {isActive
+                        ? "Active members"
+                        : "Platform not deployed yet"}
                     </p>
                   </CardContent>
                 </Card>
@@ -163,11 +278,11 @@ const PlatformDetails: React.FC = () => {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-3xl font-bold">
-                      {platformData.revenue}
-                    </div>
+                    <div className="text-3xl font-bold">$0</div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      +$450 from last month
+                      {isActive
+                        ? "No revenue yet"
+                        : "Platform not deployed yet"}
                     </p>
                   </CardContent>
                 </Card>
@@ -179,9 +294,11 @@ const PlatformDetails: React.FC = () => {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-3xl font-bold">68%</div>
+                    <div className="text-3xl font-bold">0%</div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      +5% from last month
+                      {isActive
+                        ? "No engagement yet"
+                        : "Platform not deployed yet"}
                     </p>
                   </CardContent>
                 </Card>
@@ -197,9 +314,9 @@ const PlatformDetails: React.FC = () => {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {platformData.subscriptionTiers.map((tier, index) => (
+                    {subscriptionTiers.map((tier) => (
                       <div
-                        key={index}
+                        key={tier.id}
                         className="flex items-center justify-between p-4 border rounded-md"
                       >
                         <div>
@@ -209,12 +326,9 @@ const PlatformDetails: React.FC = () => {
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="font-medium">{tier.members} members</p>
+                          <p className="font-medium">0 members</p>
                           <p className="text-sm text-muted-foreground">
-                            {Math.round(
-                              (tier.members / platformData.members) * 100,
-                            )}
-                            % of total
+                            {tier.is_popular && "Popular tier"}
                           </p>
                         </div>
                       </div>
@@ -241,38 +355,60 @@ const PlatformDetails: React.FC = () => {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    {platformData.recentMembers.map((member, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center justify-between"
-                      >
-                        <div className="flex items-center">
-                          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center mr-3">
-                            {member.name.charAt(0)}
+                  {recentMembers.length > 0 ? (
+                    <div className="space-y-4">
+                      {recentMembers.map((member) => (
+                        <div
+                          key={member.id}
+                          className="flex items-center justify-between"
+                        >
+                          <div className="flex items-center">
+                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center mr-3">
+                              {member.profiles?.name?.charAt(0) || "U"}
+                            </div>
+                            <div>
+                              <p className="font-medium">
+                                {member.profiles?.name || "Unknown User"}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Joined{" "}
+                                {new Date(
+                                  member.joined_at,
+                                ).toLocaleDateString()}
+                              </p>
+                            </div>
                           </div>
                           <div>
-                            <p className="font-medium">{member.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              Joined {member.joined}
-                            </p>
+                            <span className="px-2 py-1 text-xs rounded-full bg-primary/10">
+                              {member.subscription_tiers?.name || "Free"}
+                            </span>
                           </div>
                         </div>
-                        <div>
-                          <span className="px-2 py-1 text-xs rounded-full bg-primary/10">
-                            {member.tier}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                    <Button
-                      variant="link"
-                      className="w-full"
-                      onClick={() => setActiveTab("members")}
-                    >
-                      View All Members
-                    </Button>
-                  </div>
+                      ))}
+                      <Button
+                        variant="link"
+                        className="w-full"
+                        onClick={() => setActiveTab("members")}
+                      >
+                        View All Members
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="text-center py-6">
+                      <p className="text-muted-foreground">
+                        No members have joined yet.
+                      </p>
+                      {!isActive && (
+                        <Button
+                          variant="outline"
+                          className="mt-4"
+                          onClick={() => setIsDeployModalOpen(true)}
+                        >
+                          <Rocket className="mr-2 h-4 w-4" /> Deploy Platform
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
@@ -286,10 +422,18 @@ const PlatformDetails: React.FC = () => {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="h-[400px] flex items-center justify-center border rounded-md">
+                  <div className="space-y-4">
                     <p className="text-muted-foreground">
-                      Members management coming soon
+                      Invite, manage, and organize your platform members. Track
+                      engagement and revenue.
                     </p>
+                    <Button
+                      onClick={() =>
+                        navigate(`/platform/${platformId}/members`)
+                      }
+                    >
+                      <Users className="mr-2 h-4 w-4" /> Manage Members
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -304,10 +448,18 @@ const PlatformDetails: React.FC = () => {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="h-[400px] flex items-center justify-center border rounded-md">
+                  <div className="space-y-4">
                     <p className="text-muted-foreground">
-                      Content management coming soon
+                      Create, edit, and organize your platform content. Manage
+                      articles, videos, and more.
                     </p>
+                    <Button
+                      onClick={() =>
+                        navigate(`/platform/${platformId}/content`)
+                      }
+                    >
+                      <FileText className="mr-2 h-4 w-4" /> Manage Content
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -326,10 +478,10 @@ const PlatformDetails: React.FC = () => {
                     <div>
                       <h3 className="font-medium mb-2">Custom Domain</h3>
                       <p className="text-sm text-muted-foreground mb-4">
-                        {platformData.domain ? (
+                        {platformData.custom_domain ? (
                           <span className="flex items-center">
                             <Globe className="h-4 w-4 mr-1 text-green-600" />
-                            {platformData.domain} (Active)
+                            {platformData.custom_domain} (Active)
                           </span>
                         ) : (
                           "No custom domain configured"
@@ -392,6 +544,15 @@ const PlatformDetails: React.FC = () => {
       </main>
 
       <Footer />
+
+      {/* Deployment Modal */}
+      <DeploymentModal
+        isOpen={isDeployModalOpen}
+        onClose={() => setIsDeployModalOpen(false)}
+        platformId={platformId || ""}
+        platformName={platformData.name}
+        subdomain={platformData.subdomain}
+      />
     </div>
   );
 };
